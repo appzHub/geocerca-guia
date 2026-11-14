@@ -1,0 +1,10 @@
+{
+ "operaciones": {
+  "sal": "bf83d92a2866438623c1843950f63e69",
+  "hash": "3897e8c0a0a1ff0ea9dca724f7828e114b2844869b9e1506ac2448b11fada821"
+ },
+ "admin": {
+  "sal": "7512f11767513e5204b205fb493b6658",
+  "hash": "d24b86908e77e21fa7e8d0d58e45a67cb698715f4f2c4814e74e724c716f0b01"
+ }
+}
