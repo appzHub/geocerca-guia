@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Geocerca de guía · Envía Cali</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"></script>
+<style>
+:root{--rojo:#EA0029;--vino:#9C0019;--gris:#3A3A3A;--claro:#F4F4F4;--borde:#DDD;--ok:#1B7F3B;--aviso:#B26A00}
+*{box-sizing:border-box}
+body{margin:0;font-family:Segoe UI,Roboto,Arial,sans-serif;background:#fff;color:var(--gris)}
+header{background:var(--rojo);color:#fff;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+header h1{font-size:18px;margin:0;font-weight:700}
+header small{opacity:.85}
+header .usr{margin-left:auto;font-size:13px}
+header button{background:transparent;border:1px solid #fff;color:#fff;border-radius:4px;padding:3px 8px;cursor:pointer}
+main{display:grid;grid-template-columns:minmax(320px,440px) 1fr;gap:0;height:calc(100vh - 52px)}
+#panel{padding:14px 16px;overflow:auto;border-right:1px solid var(--borde)}
+#mapa{height:100%;min-height:360px}
+h2{font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:var(--vino);margin:14px 0 8px}
+label{font-size:12px;font-weight:600;display:block;margin:6px 0 3px}
+input[type=text],input[type=password]{width:100%;padding:9px 10px;border:1px solid #BBB;border-radius:4px;font-size:15px}
+input:focus{outline:2px solid var(--rojo);border-color:var(--rojo)}
+.btn{background:var(--rojo);color:#fff;border:0;border-radius:4px;padding:10px 14px;font-size:15px;font-weight:600;cursor:pointer;margin-top:10px}
+.btn:hover{background:var(--vino)}
+.btn.sec{background:var(--gris)}
+.btn:disabled{opacity:.5;cursor:default}
+#res{margin-top:12px;padding:12px;border-radius:6px;background:var(--claro);display:none}
+#res .gc{font-size:22px;font-weight:800;color:var(--vino)}
+.prec{font-size:12px;margin-top:4px}
+.prec.cuadra{color:var(--ok)} .prec.aprox{color:var(--aviso)}
+.nota{font-size:12px;color:#666;margin-top:6px;line-height:1.4}
+table{border-collapse:collapse;width:100%;font-size:12px;margin-top:8px}
+th{background:var(--gris);color:#fff;text-align:left;padding:5px;position:sticky;top:0}
+td{border-bottom:1px solid var(--borde);padding:5px;vertical-align:top}
+tr.fila{cursor:pointer} tr.fila:hover{background:#FDECEF}
+tr.sel{background:#F9D5DC}
+.barra{height:6px;background:var(--claro);border-radius:3px;margin-top:8px;overflow:hidden}
+.barra div{height:100%;background:var(--rojo);width:0}
+#tabla{max-height:42vh;overflow:auto}
+#login{position:fixed;inset:0;background:var(--gris);display:flex;align-items:center;justify-content:center;z-index:2000}
+#login form{background:#fff;padding:24px;border-radius:8px;width:min(340px,92vw);border-top:6px solid var(--rojo)}
+#login h1{font-size:18px;margin:0 0 12px;color:var(--vino)}
+#lerr{color:var(--rojo);font-size:13px;min-height:18px;margin-top:6px}
+@media (max-width:800px){main{grid-template-columns:1fr;height:auto}#panel{border-right:0}#mapa{height:60vh}}
+</style>
+</head>
+<body>
+<div id="login"><form id="flogin" autocomplete="on">
+  <h1>Geocerca de guía</h1>
+  <label for="lu">Usuario</label><input type="text" id="lu" autocomplete="username" required>
+  <label for="lc">Contraseña</label><input type="password" id="lc" autocomplete="current-password" required>
+  <button class="btn" style="width:100%">Ingresar</button>
+  <div id="lerr"></div>
+</form></div>
+
+<header><h1>Geocerca de guía</h1><small>Envía · Cali</small>
+  <span class="usr"><span id="quien"></span> <button id="salir" type="button">Salir</button></span></header>
+<main>
+<section id="panel">
+  <h2>Una guía</h2>
+  <form id="funa">
+    <label for="guia">Guía</label><input type="text" id="guia" placeholder="1234567890">
+    <label for="dir">Dirección</label><input type="text" id="dir" placeholder="Calle 5 # 66-20" required>
+    <button class="btn">Consultar</button>
+  </form>
+  <div id="res"></div>
+
+  <h2>Excel (varias guías)</h2>
+  <div class="nota">Columnas: <b>Guía</b> y <b>Dirección</b> (opcional <b>Ciudad</b>). Se descarga con la geocerca de cada una.</div>
+  <input type="file" id="arch" accept=".xlsx,.xls,.csv" style="margin-top:8px">
+  <div class="barra"><div id="prog"></div></div>
+  <div id="estado" class="nota"></div>
+  <button class="btn sec" id="bajar" disabled>Descargar Excel con geocercas</button>
+  <div id="tabla"></div>
+  <div class="nota" id="info"></div>
+</section>
+<div id="mapa"></div>
+</main>
+
+<script>
+"use strict";
+// ---------- datos
+const REF = {cali:[3.4372,-76.5197], yumbo:[3.585,-76.495], jamundi:[3.261,-76.539], palmira:[3.5394,-76.3036], candelaria:[3.4097,-76.3486],
+  florida:[3.3222,-76.2353], pradera:[3.419,-76.244], poblado:[3.43,-76.37], villagorgona:[3.456,-76.387]};
+let ZONAS = [], CRUCES = {}, filas = [], marcador = null, capaSel = null;
+
+// ---------- ingreso (usuarios.json: sal + hash PBKDF2; la clave nunca está en el repositorio)
+async function hashClave(clave, salHex) {
+  const sal = new Uint8Array(salHex.match(/../g).map(h => parseInt(h, 16)));
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(clave), "PBKDF2", false, ["deriveBits"]);
+  const b = await crypto.subtle.deriveBits({name:"PBKDF2", hash:"SHA-256", salt:sal, iterations:150000}, k, 256);
+  return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, "0")).join("");
+}
+function sesion(v) { try { if (v === undefined) return sessionStorage.getItem("gc_u"); if (v) sessionStorage.setItem("gc_u", v); else sessionStorage.removeItem("gc_u"); } catch (e) { return null; } }
+function entrar(u) { document.getElementById("login").style.display = "none"; document.getElementById("quien").textContent = u; iniciar(); }
+document.getElementById("flogin").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const u = document.getElementById("lu").value.trim().toLowerCase(), c = document.getElementById("lc").value;
+  const err = document.getElementById("lerr"); err.textContent = "Verificando…";
+  try {
+    const us = await (await fetch("datos/usuarios.json?v=" + Date.now())).json();
+    if (us[u] && await hashClave(c, us[u].sal) === us[u].hash) { sesion(u); err.textContent = ""; entrar(u); }
+    else err.textContent = "Usuario o contraseña incorrectos.";
+  } catch (e) { err.textContent = "No se pudo verificar el acceso."; }
+});
+document.getElementById("salir").onclick = () => { sesion(null); location.reload(); };
+
+// ---------- mapa
+const mapa = L.map("mapa").setView(REF.cali, 12);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom:19, attribution:"© OpenStreetMap"}).addTo(mapa);
+
+async function iniciar() {
+  if (ZONAS.length) return;
+  const [z, c] = await Promise.all([fetch("datos/geocercas.json").then(r => r.json()), fetch("datos/cruces.json").then(r => r.json())]);
+  ZONAS = z; CRUCES = c;
+  const capas = [];
+  ZONAS.forEach(g => g.anillos.forEach(a => {
+    const p = L.polygon(a.map(q => [q[1], q[0]]), {color:"#9C0019", weight:1.5, fillColor:"#EA0029", fillOpacity:.08});
+    p.bindTooltip(g.nombre, {sticky:true}); p.addTo(mapa); capas.push(p);
+  }));
+  mapa.fitBounds(L.featureGroup(capas).getBounds());
+  document.getElementById("info").textContent = ZONAS.length + " geocercas del mapa «Mapa Zonificar PE CALI 2026» (se actualizan solas cada día).";
+}
+setTimeout(() => mapa.invalidateSize(), 200);
+
+// ---------- geometría
+function dentro(pt, an) { let c = false;
+  for (let i = 0, j = an.length - 1; i < an.length; j = i++) { const xi = an[i][0], yi = an[i][1], xj = an[j][0], yj = an[j][1];
+    if (((yi > pt[1]) !== (yj > pt[1])) && (pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi)) c = !c; }
+  return c; }
+function distBorde(pt, an) { const k = 111320, kx = k * Math.cos(pt[1] * Math.PI / 180); let b = Infinity;
+  for (let i = 0, j = an.length - 1; i < an.length; j = i++) {
+    const ax = (an[j][0] - pt[0]) * kx, ay = (an[j][1] - pt[1]) * k, bx = (an[i][0] - pt[0]) * kx, by = (an[i][1] - pt[1]) * k;
+    const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy, t = l2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2)) : 0;
+    b = Math.min(b, Math.hypot(ax + t * dx, ay + t * dy)); }
+  return b; }
+const metros = (a, b) => Math.hypot((a[0] - b[0]) * 111320, (a[1] - b[1]) * 111320 * Math.cos(a[0] * Math.PI / 180));
+function geocerca(lat, lng) {
+  const pt = [lng, lat], en = ZONAS.filter(z => z.anillos.some(a => dentro(pt, a))).map(z => z.nombre);
+  if (en.length) return {texto: en.join(" / "), fuera: false};
+  let c = null; ZONAS.forEach(z => z.anillos.forEach(a => { const d = distBorde(pt, a); if (!c || d < c.m) c = {n: z.nombre, m: d}; }));
+  if (c && c.m < 40) return {texto: c.n + " (borde, " + Math.round(c.m) + " m)", fuera: false};   // calle limite entre geocercas
+  return {texto: c ? "FUERA · más cercana " + c.n + " (" + Math.round(c.m) + " m)" : "FUERA", fuera: true};
+}
+
+// ---------- direcciones colombianas
+const norm = t => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/\s+/g, " ").trim();
+const TIPO = [[/^(avenida calle|av\.? calle|ac)\b\.?/, ["CL"]], [/^(avenida carrera|av\.? carrera|ak)\b\.?/, ["KR"]],
+  [/^(calle|cll|clle|cl)\b\.?/, ["CL"]], [/^(carrera|cra|kra|kr|cr|carerra|crr)\b\.?/, ["KR"]],
+  [/^(diagonal|diag|dg)\b\.?/, ["DG"]], [/^(transversal|transv|tv|tr)\b\.?/, ["TV"]], [/^(avenida|av)\b\.?/, ["AV", "CL", "KR"]]];
+const CRUZA = {CL:["KR","AV","DG","TV"], KR:["CL","AV","DG","TV"], AV:["CL","KR","AV"], DG:["TV","KR","CL"], TV:["DG","CL","KR"]};
+function parte(t) { // "13 a bis norte" -> ["13ABISN", "13ABIS", ...] y número 13
+  let s = t.toUpperCase().replace(/NORTE/g, "N").replace(/OESTE/g, "O").replace(/\bSUR\b/g, "S").replace(/\bESTE\b/g, "E").replace(/[^0-9A-Z]/g, "");
+  const m = s.match(/^(\d+)([A-Z0-9]*)$/); if (!m) return null;
+  const v = new Set([s]); const suf = s.match(/[NOSE]$/); if (suf && m[2].length) v.add(s.slice(0, -1));
+  return {num: +m[1], v: [...v], suf: suf && m[2].length ? suf[0] : ""};
+}
+function leer(dir) {
+  let t = norm(dir).replace(/\b(n[o°º]\.?|num(ero)?\.?)\s*(?=\d)/g, "# ").replace(/#/g, " # ").replace(/\s+/g, " ").trim();
+  for (const [re, tipos] of TIPO) {
+    const m = t.match(re); if (!m) continue;
+    const r = t.slice(m[0].length).trim();
+    let a = r.match(/^(.+?)\s*#\s*(.+?)\s*-\s*(\d+)/) || r.match(/^(\d+\s?[a-z]{0,2}(?:\s?bis)?(?:\s?(?:norte|oeste|sur))?)\s+(\d+\s?[a-z]{0,2}(?:\s?bis)?(?:\s?(?:norte|oeste|sur))?)\s*-\s*(\d+)/);
+    if (!a) return null;
+    const p = parte(a[1]), c = parte(a[2]); if (!p || !c) return null;
+    return {tipos, p, c, placa: +a[3]};
+  }
+  return null;
+}
+function refPueblo(dir, ciudad) { const t = norm(dir + " " + (ciudad || "")); for (const k in REF) if (k !== "cali" && t.includes(k)) return REF[k]; return REF.cali; }
+const numDe = k => { const m = k.match(/^[A-Z]{2}(\d+)/); return m ? +m[1] : null; };
+
+function ubicarCruce(d, ref) {
+  const radio = ref === REF.cali ? 12000 : 6000;   // el cruce tiene que estar en el pueblo de la direccion
+  for (const tp of d.tipos) for (const pv of d.p.v) {
+    const P = tp + pv, lista = (CRUCES[P] || []).filter(x => metros([x[1], x[2]], ref) < radio); if (!lista.length) continue;
+    for (const tc of CRUZA[tp]) {
+      const cv = d.c.v.slice(); if (d.p.suf && !d.c.suf) cv.unshift(d.c.v[0] + d.p.suf);
+      for (const c of cv) {
+        const pts = lista.filter(x => x[0] === tc + c); if (!pts.length) continue;
+        pts.sort((a, b) => metros([a[1], a[2]], ref) - metros([b[1], b[2]], ref));
+        let pos = [pts[0][1], pts[0][2]];
+        // avanzar la placa (metros desde la esquina) hacia el cruce siguiente de la misma via
+        const sig = lista.filter(x => x[0].startsWith(tc) && numDe(x[0]) > d.c.num && numDe(x[0]) <= d.c.num + 2 && metros([x[1], x[2]], pos) < 400)
+          .sort((a, b) => numDe(a[0]) - numDe(b[0]) || metros([a[1], a[2]], pos) - metros([b[1], b[2]], pos))[0];
+        if (sig && d.placa) { const f = Math.min(d.placa / 100, .9) / (numDe(sig[0]) - d.c.num); pos = [pos[0] + (sig[1] - pos[0]) * f, pos[1] + (sig[2] - pos[1]) * f]; }
+        return {lat: pos[0], lng: pos[1], prec: "cuadra", via: P + " × " + tc + c};
+      }
+    }
+    // sin cruce exacto: interpolar entre los cruces vecinos de la misma via
+    for (const tc of CRUZA[tp]) {
+      const cand = lista.filter(x => x[0].startsWith(tc) && numDe(x[0]) !== null);
+      const n = d.c.num + Math.min(d.placa / 100, .9);
+      const lo = cand.filter(x => numDe(x[0]) <= d.c.num).sort((a, b) => numDe(b[0]) - numDe(a[0]) || metros([a[1], a[2]], ref) - metros([b[1], b[2]], ref))[0];
+      const hi = cand.filter(x => numDe(x[0]) > d.c.num).sort((a, b) => numDe(a[0]) - numDe(b[0]) || metros([a[1], a[2]], ref) - metros([b[1], b[2]], ref))[0];
+      if (lo && hi && numDe(hi[0]) - numDe(lo[0]) <= 12 && metros([lo[1], lo[2]], [hi[1], hi[2]]) < 2500) {
+        const f = (n - numDe(lo[0])) / (numDe(hi[0]) - numDe(lo[0]));
+        return {lat: lo[1] + (hi[1] - lo[1]) * f, lng: lo[2] + (hi[2] - lo[2]) * f, prec: "interpolada", via: P + " entre " + lo[0] + " y " + hi[0]};
+      }
+    }
+  }
+  return null;
+}
+let ultimoOSM = 0;
+async function osm(dir, ciudad) {
+  const espera = 1100 - (Date.now() - ultimoOSM); if (espera > 0) await new Promise(r => setTimeout(r, espera));
+  ultimoOSM = Date.now();
+  const q = dir + ", " + (ciudad || (/(yumbo|jamund|palmira|candelaria|florida|pradera)/i.test(dir) ? "" : "Cali")) + ", Valle del Cauca, Colombia";
+  const u = "https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=co&viewbox=-76.62,3.62,-76.22,3.20&q=" + encodeURIComponent(q);
+  const d = leer(dir);   // si es nomenclatura, la respuesta tiene que ser esa via (Nominatim a veces devuelve otra calle)
+  const r = (await (await fetch(u)).json()).filter(x => !["city", "town", "municipality", "county", "state", "region", "country", "village"].includes(x.addresstype)
+    && (!d || new RegExp("\\b" + d.p.num + "\\b").test(x.display_name.split(",")[0])));
+  return r.length ? {lat: +r[0].lat, lng: +r[0].lon, prec: r[0].class === "highway" ? "aproximada (solo la calle)" : "aproximada (barrio/lugar)",
+    via: r[0].display_name.split(",").slice(0, 3).join(",")} : null;
+}
+// "Mz 4 casa 12 Ciudad Cordoba" -> "Ciudad Cordoba": al menos el barrio
+const soloBarrio = dir => norm(dir).replace(/\b(mz|manzana|casa|cs|apto|apartamento|lote|lt|torre|bloque|int|interior|etapa|piso|barrio|b\/)\b\.?/g, " ").replace(/[#\d-]+[a-z]?\b/g, " ").replace(/\s+/g, " ").trim();
+async function consultar(guia, dir, ciudad) {
+  const d = leer(dir), ref = refPueblo(dir, ciudad);
+  let u = d ? ubicarCruce(d, ref) : null;
+  if (!u && d) {   // la via principal no tiene cruces en OSM: ubicar sobre la via que la cruza
+    const tcs = [...new Set(d.tipos.flatMap(t => CRUZA[t]))];
+    for (const tc of tcs) { u = ubicarCruce({tipos: [tc], p: d.c, c: {num: d.p.num, v: d.p.v, suf: d.p.suf}, placa: 0}, ref); if (u) { u.prec = "interpolada"; break; } }
+  }
+  if (!u) { try { u = await osm(dir, ciudad); } catch (e) { u = null; } }
+  if (!u && !d && soloBarrio(dir).length > 3 && soloBarrio(dir) !== norm(dir)) { try { u = await osm(soloBarrio(dir), ciudad); } catch (e) { u = null; } }
+  if (!u) return {guia, dir, ciudad, geocerca: "NO UBICADA · revise la dirección", prec: "—", lat: "", lng: ""};
+  const g = geocerca(u.lat, u.lng);
+  return {guia, dir, ciudad, geocerca: g.texto, fuera: g.fuera, prec: u.prec, via: u.via, lat: +u.lat.toFixed(6), lng: +u.lng.toFixed(6)};
+}
+
+// ---------- mostrar en el mapa (el pin se puede arrastrar para corregir)
+function mostrar(r, alMover) {
+  if (r.lat === "") return;
+  if (marcador) marcador.remove();
+  marcador = L.marker([r.lat, r.lng], {draggable: true}).addTo(mapa).bindPopup("<b>" + esc(r.guia || "") + "</b><br>" + esc(r.geocerca)).openPopup();
+  mapa.setView([r.lat, r.lng], 16);
+  marcador.on("dragend", () => { const p = marcador.getLatLng(); const g = geocerca(p.lat, p.lng);
+    Object.assign(r, {lat: +p.lat.toFixed(6), lng: +p.lng.toFixed(6), geocerca: g.texto, fuera: g.fuera, prec: "corregida en el mapa"});
+    marcador.setPopupContent("<b>" + esc(r.guia || "") + "</b><br>" + esc(r.geocerca)).openPopup(); alMover && alMover(r); });
+}
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function pintarRes(r) {
+  const el = document.getElementById("res"); el.style.display = "block";
+  const cls = r.prec === "cuadra" || r.prec === "corregida en el mapa" ? "cuadra" : "aprox";
+  el.innerHTML = '<div class="nota">Guía ' + esc(r.guia || "—") + "</div><div class='gc'>" + esc(r.geocerca) + "</div>" +
+    "<div class='prec " + cls + "'>Ubicación: " + esc(r.prec) + (r.via ? " · " + esc(r.via) : "") + "</div>" +
+    (r.lat !== "" ? "<div class='nota'>Si el pin no quedó en la casa, arrástrelo en el mapa: la geocerca se recalcula.</div>" : "");
+}
+document.getElementById("funa").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const r = await consultar(document.getElementById("guia").value.trim(), document.getElementById("dir").value.trim(), "");
+  pintarRes(r); mostrar(r, pintarRes);
+});
+
+// ---------- Excel
+function columna(enc, ...claves) { return enc.findIndex(h => claves.some(k => norm(h).includes(k))); }
+document.getElementById("arch").addEventListener("change", async ev => {
+  const f = ev.target.files[0]; if (!f) return;
+  const wb = XLSX.read(await f.arrayBuffer()), hoja = wb.Sheets[wb.SheetNames[0]];
+  const m = XLSX.utils.sheet_to_json(hoja, {header: 1, defval: ""}).filter(r => r.some(v => String(v).trim()));
+  if (!m.length) return;
+  let ig = columna(m[0], "guia"), id = columna(m[0], "direc"), ic = columna(m[0], "ciudad", "municip");
+  const conEnc = ig >= 0 || id >= 0; if (ig < 0) ig = 0; if (id < 0) id = 1;
+  const datos = conEnc ? m.slice(1) : m; filas = [];
+  const est = document.getElementById("estado"), prog = document.getElementById("prog"); document.getElementById("bajar").disabled = true;
+  for (let i = 0; i < datos.length; i++) {
+    const r = await consultar(String(datos[i][ig]).trim(), String(datos[i][id]).trim(), ic >= 0 ? String(datos[i][ic]).trim() : "");
+    filas.push(r); prog.style.width = Math.round(100 * (i + 1) / datos.length) + "%";
+    est.textContent = "Procesadas " + (i + 1) + " de " + datos.length; if (i % 10 === 9 || i === datos.length - 1) tabla();
+  }
+  const nu = filas.filter(r => r.lat === "").length, ap = filas.filter(r => r.prec.startsWith("aprox")).length;
+  est.textContent = filas.length + " guías · " + (filas.length - nu - ap) + " por cuadra · " + ap + " aproximadas (revisar) · " + nu + " sin ubicar";
+  document.getElementById("bajar").disabled = false;
+});
+function tabla() {
+  document.getElementById("tabla").innerHTML = "<table><tr><th>Guía</th><th>Dirección</th><th>Geocerca</th><th>Ubicación</th></tr>" +
+    filas.map((r, i) => "<tr class='fila' data-i='" + i + "'><td>" + esc(r.guia) + "</td><td>" + esc(r.dir) + "</td><td><b>" + esc(r.geocerca) + "</b></td><td>" + esc(r.prec) + "</td></tr>").join("") + "</table>";
+  document.querySelectorAll("tr.fila").forEach(tr => tr.onclick = () => {
+    document.querySelectorAll("tr.sel").forEach(x => x.classList.remove("sel")); tr.classList.add("sel");
+    mostrar(filas[+tr.dataset.i], () => tabla()); });
+}
+document.getElementById("bajar").onclick = () => {
+  const out = [["Guía", "Dirección", "Ciudad", "Geocerca", "Ubicación", "Latitud", "Longitud", "Ver en mapa"]].concat(
+    filas.map(r => [r.guia, r.dir, r.ciudad, r.geocerca, r.prec, r.lat, r.lng, r.lat !== "" ? "https://www.google.com/maps?q=" + r.lat + "," + r.lng : ""]));
+  const ws = XLSX.utils.aoa_to_sheet(out); ws["!cols"] = [{wch:14},{wch:36},{wch:12},{wch:34},{wch:22},{wch:10},{wch:11},{wch:40}];
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Geocercas");
+  XLSX.writeFile(wb, "guias_geocerca_" + new Date().toISOString().slice(0, 10) + ".xlsx");
+};
+
+const u0 = sesion(); if (u0) entrar(u0);
+</script>
+</body>
+</html>
