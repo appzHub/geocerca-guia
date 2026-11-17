@@ -24,6 +24,26 @@ ALIAS = {"guadalajara de buga": ["buga"], "santiago de cali": ["cali"], "santand
          "buenaventura": ["bventura"], "tulua": ["tulua"], "jamundi": ["jamundi"]}
 
 
+SERVIDORES = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter",
+              "https://maps.mail.ru/osm/tools/overpass/api/interpreter"]
+
+
+def overpass(q):
+    """Overpass a veces responde 502/504 por carga: se reintenta en servidores alternos antes de rendirse."""
+    import time
+    ultimo = None
+    for intento in range(2):
+        for url in SERVIDORES:
+            try:
+                req = urllib.request.Request(url, data=urllib.parse.urlencode({"data": q}).encode(), headers={"User-Agent": "geocerca-guia"})
+                d = json.load(urllib.request.urlopen(req, timeout=320))
+                if "elements" in d: return d
+            except Exception as e:
+                ultimo = e
+        time.sleep(30)
+    raise RuntimeError(f"Overpass no respondio: {ultimo}")
+
+
 def norm(t):
     t = "".join(c for c in unicodedata.normalize("NFD", str(t).lower()) if unicodedata.category(c) != "Mn")
     return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", t)).strip()
@@ -107,7 +127,7 @@ def main():
  nwr["aeroway"="aerodrome"]["name"]{AREA};
 );out tags center;'''
     osm = (json.load(open(sys.argv[1], encoding="utf-8")) if len(sys.argv) > 1 else
-           bajar("https://overpass-api.de/api/interpreter", urllib.parse.urlencode({"data": osm_q}).encode()))["elements"]
+           overpass(osm_q))["elements"]
     barrios = (json.load(open(sys.argv[2], encoding="utf-8")) if len(sys.argv) > 2 else bajar(WFS))["features"]
     if len(barrios) < 300 or len(osm) < 2000: sys.exit(f"pocos datos ({len(barrios)} barrios, {len(osm)} lugares); no se sobrescribe")
 

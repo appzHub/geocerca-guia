@@ -13,6 +13,26 @@ TIPOS = [(r"avenida calle|av\.? calle", "CL"), (r"avenida carrera|av\.? carrera"
 SUF = {"NORTE": "N", "OESTE": "O", "SUR": "S", "ESTE": "E"}
 
 
+SERVIDORES = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter",
+              "https://maps.mail.ru/osm/tools/overpass/api/interpreter"]
+
+
+def overpass(q):
+    """Overpass a veces responde 502/504 por carga: se reintenta en servidores alternos antes de rendirse."""
+    import time
+    ultimo = None
+    for intento in range(2):
+        for url in SERVIDORES:
+            try:
+                req = urllib.request.Request(url, data=urllib.parse.urlencode({"data": q}).encode(), headers={"User-Agent": "geocerca-guia"})
+                d = json.load(urllib.request.urlopen(req, timeout=320))
+                if "elements" in d: return d
+            except Exception as e:
+                ultimo = e
+        time.sleep(30)
+    raise RuntimeError(f"Overpass no respondio: {ultimo}")
+
+
 def sin_tildes(t):
     return "".join(c for c in unicodedata.normalize("NFD", t) if unicodedata.category(c) != "Mn")
 
@@ -35,9 +55,7 @@ def bajar():
     els = []
     for t in TILES:
         q = f'[out:json][timeout:280];way["highway"]["name"]({",".join(map(str, t))});out tags geom;'
-        req = urllib.request.Request("https://overpass-api.de/api/interpreter", data=urllib.parse.urlencode({"data": q}).encode(),
-                                     headers={"User-Agent": "geocerca-guia"})
-        els += json.load(urllib.request.urlopen(req, timeout=320))["elements"]
+        els += overpass(q)["elements"]
     return els
 
 
