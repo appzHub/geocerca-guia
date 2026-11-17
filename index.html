@@ -181,6 +181,8 @@ function ciudadDe(dir, ciudad) {
   const c = limpio(ciudad), t = limpio(dir);
   let x = c && (CIU.find(k => k[0] === c) || CIU.find(k => palabra(c, k[0])));
   if (!x) x = CIU.find(k => k[4] >= 5000 && k[0] !== "cali" && palabra(t, k[0]));
+  // "Rozo" en la direccion con ciudad Palmira: manda el pueblo (es mas preciso), si esta cerca de esa ciudad
+  else { const y = CIU.find(k => k[0] !== x[0] && k[0] !== "cali" && k[5] && palabra(t, k[0]) && metros([k[2], k[3]], [x[2], x[3]]) < 25000); if (y) x = y; }
   const cali = CIU.find(k => k[0] === "cali");
   // "Km 8 via Jamundi-Cali": el sitio esta en el corredor entre las dos ciudades, no dentro de una (Carlos 17/11/2026)
   const dos = CIU.filter(k => k[4] >= 5000 && palabra(t, k[0])).filter((k, i, a) => a.findIndex(z => z[1] === k[1]) === i);
@@ -206,7 +208,9 @@ function lugarDe(texto, ciu) {
       cand = cand.concat(LUG.get(k) || []);
     }
     if (!cand.length) continue;
-    const cerca = cand.filter(x => metros([x[2], x[3]], ciu.ref) < ciu.radio * 1.2);
+    let cerca = cand.filter(x => metros([x[2], x[3]], ciu.ref) < ciu.radio * 1.2);
+    // un lugar unico en todo el mapa (Arroyohondo, de Yumbo) vale aunque quede fuera del casco urbano, si esta a menos de 15 km
+    if (!cerca.length && cand.every(x => metros([x[2], x[3]], [cand[0][2], cand[0][3]]) < 1500)) cerca = cand.filter(x => metros([x[2], x[3]], ciu.ref) < 15000);
     if (ciu.dada && !cerca.length) continue;
     const c = (cerca.length ? cerca : cand).sort((a, b) => (b[4] === "barrio Cali") - (a[4] === "barrio Cali") || metros([a[2], a[3]], ciu.ref) - metros([b[2], b[3]], ciu.ref));
     const otro = c.some(x => x[6] !== c[0][6] && metros([x[2], x[3]], [c[0][2], c[0][3]]) > 1500);   // un homonimo lejos, en otra geocerca

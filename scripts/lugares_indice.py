@@ -12,7 +12,7 @@ AREA = (2.95, -77.12, 4.25, -76.12)
 WFS = ("https://ws-idesc.cali.gov.co/geoserver/wfs?service=WFS&version=1.0.0&request=GetFeature"
        "&typeName=dapm:pdt_dpa_barrios_sectores&outputFormat=application/json&srsName=EPSG:4326")
 GENERICOS = (r"^(barrio|urbanizacion|urb|conjunto residencial|conjunto|condominio|unidad residencial|ciudadela|parcelacion|sector|asentamiento|"
-             r"vereda|corregimiento|centro comercial|c c|cc|ciudad)\s+")
+             r"vereda|corregimiento|centro comercial|c c|cc|ciudad|zona industrial|zona franca|parque industrial)\s+")
 ARTICULO = r"^(el|la|los|las)\s+"
 ETAPA = r"\s+((primera|segunda|tercera|cuarta|quinta|1a|2a|3a|4a|[0-9]+)\s+etapa|etapa\s+\w+|i|ii|iii|iv|v|vi)$"
 # primera palabra sola ("desepaz" por «Desepaz Invicali»): solo barrios oficiales y si no es una palabra comun
@@ -21,7 +21,8 @@ NO_PRIMERA = {"altos", "bosques", "brisas", "prados", "villa", "santa", "nueva",
               "jose", "juan", "pedro", "francisco", "jorge", "julio", "rafael", "ricardo", "primero", "industrial", "unidad", "multicentro"}
 # alias que la gente escribe en lugar del nombre oficial
 ALIAS = {"guadalajara de buga": ["buga"], "santiago de cali": ["cali"], "santander de quilichao": ["santander"],
-         "buenaventura": ["bventura"], "tulua": ["tulua"], "jamundi": ["jamundi"]}
+         "buenaventura": ["bventura"], "tulua": ["tulua"], "jamundi": ["jamundi"],
+         "zona industrial arroyohondo": ["arroyo hondo"]}
 
 
 SERVIDORES = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter",
@@ -110,6 +111,7 @@ def variantes(nombre, oficial=False):
         n = norm(trozo); v.add(n)
         for _ in range(2):
             n = re.sub(ARTICULO, "", re.sub(GENERICOS, "", re.sub(ETAPA, "", n))).strip(); v.add(n)
+        if len(n.split(" ")) == 2: v.add(n.replace(" ", ""))     # "arroyo hondo" = "arroyohondo"
         p = n.split(" ")[0]
         if oficial and len(n.split(" ")) > 1 and len(p) >= 6 and p not in NO_PRIMERA: v.add(p)
     for k, al in ALIAS.items():
