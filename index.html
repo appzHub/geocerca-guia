@@ -182,6 +182,12 @@ function ciudadDe(dir, ciudad) {
   let x = c && (CIU.find(k => k[0] === c) || CIU.find(k => palabra(c, k[0])));
   if (!x) x = CIU.find(k => k[4] >= 5000 && k[0] !== "cali" && palabra(t, k[0]));
   const cali = CIU.find(k => k[0] === "cali");
+  // "Km 8 via Jamundi-Cali": el sitio esta en el corredor entre las dos ciudades, no dentro de una (Carlos 17/11/2026)
+  const dos = CIU.filter(k => k[4] >= 5000 && palabra(t, k[0])).filter((k, i, a) => a.findIndex(z => z[1] === k[1]) === i);
+  if (/\b(km|kilometro|via)\b/.test(t) && dos.length >= 2) {
+    const [a, b] = dos, ref = [(a[2] + b[2]) / 2, (a[3] + b[3]) / 2];
+    return {clave: a[0], nombre: a[1] + " – " + b[1], ref, radio: metros([a[2], a[3]], [b[2], b[3]]) / 2 + 3000, unica: null, dada: true, via: true};
+  }
   return x ? {clave: x[0], nombre: x[1], ref: [x[2], x[3]], radio: x[4], unica: x[5], dada: true}
            : {clave: "cali", nombre: "Cali", ref: cali ? [cali[2], cali[3]] : REF.cali, radio: 12000, unica: null, dada: false};
 }
@@ -296,6 +302,7 @@ async function consultar(guia, dir, ciudad, barrio) {
     const b = deLugar(); b.prec += " · la dirección cae en " + gu + ": revisar"; b.conf = "revisar"; return fin(b);
   }
   if (u) return fin(u);
+  if (lg && ciu.via) { const b = deLugar(); b.conf = "media"; b.prec += " · kilómetro en vía entre " + ciu.nombre + ": verificar el lado de la vía"; return fin(b); }
   if (lg) return fin(deLugar());
   // 3. la ciudad sola, si toda la ciudad es una sola geocerca
   if (ciu.dada && ciu.unica) return Object.assign({}, base, {geocerca: ciu.unica, fuera: false, prec: "ciudad «" + ciu.nombre + "» (tiene una sola geocerca)", conf: "media",
@@ -304,7 +311,7 @@ async function consultar(guia, dir, ciudad, barrio) {
   try { u = await osm(dir, ciu.nombre); } catch (e) { u = null; }
   if (!u && !d && soloBarrio(dir).length > 3 && soloBarrio(dir) !== norm(dir)) { try { u = await osm(soloBarrio(dir), ciu.nombre); } catch (e) { u = null; } }
   if (u) { u.conf = "revisar"; return fin(u); }
-  const por = ciu.dada ? ciu.nombre + " tiene varias geocercas: falta dirección o barrio" : "revise la dirección o agregue ciudad/barrio";
+  const por = ciu.via ? "kilómetro en vía " + ciu.nombre + ": falta el lugar (vereda, conjunto, empresa)" : ciu.dada ?ciu.nombre + " tiene varias geocercas: falta dirección o barrio" : "revise la dirección o agregue ciudad/barrio";
   return Object.assign({}, base, {geocerca: "NO UBICADA · " + por, prec: "—", conf: "—", lat: "", lng: ""});
 }
 
