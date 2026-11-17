@@ -63,13 +63,14 @@ tr.sel{background:#F9D5DC}
   <h2>Una guía</h2>
   <form id="funa">
     <label for="guia">Guía</label><input type="text" id="guia" placeholder="1234567890">
-    <label for="dir">Dirección</label><input type="text" id="dir" placeholder="Calle 5 # 66-20" required>
+    <label for="dir">Dirección</label><input type="text" id="dir" placeholder="Calle 5 # 66-20 · o el barrio · o «Ingenio Manuelita»" required>
+    <label for="ciu">Ciudad (opcional)</label><input type="text" id="ciu" placeholder="Cali, Tuluá, Candelaria…">
     <button class="btn">Consultar</button>
   </form>
   <div id="res"></div>
 
   <h2>Excel (varias guías)</h2>
-  <div class="nota">Columnas: <b>Guía</b> y <b>Dirección</b> (opcional <b>Ciudad</b>). Se descarga con la geocerca de cada una.</div>
+  <div class="nota">Columnas: <b>Guía</b> y <b>Dirección</b> (opcional <b>Ciudad</b> y <b>Barrio</b>). Se descarga con la geocerca de cada una.</div>
   <input type="file" id="arch" accept=".xlsx,.xls,.csv" style="margin-top:8px">
   <div class="barra"><div id="prog"></div></div>
   <div id="estado" class="nota"></div>
@@ -85,7 +86,8 @@ tr.sel{background:#F9D5DC}
 // ---------- datos
 const REF = {cali:[3.4372,-76.5197], yumbo:[3.585,-76.495], jamundi:[3.261,-76.539], palmira:[3.5394,-76.3036], candelaria:[3.4097,-76.3486],
   florida:[3.3222,-76.2353], pradera:[3.419,-76.244], poblado:[3.43,-76.37], villagorgona:[3.456,-76.387]};
-let ZONAS = [], CRUCES = {}, filas = [], marcador = null, capaSel = null;
+let ZONAS = [], CRUCES = {}, LUG = new Map(), CIU = [], filas = [], marcador = null, capaSel = null;
+const PLACAS = {};   // datos/placas/<via>.json (direcciones oficiales de Cali), se bajan a medida que se necesitan
 
 // ---------- ingreso (usuarios.json: sal + hash PBKDF2; la clave nunca está en el repositorio)
 async function hashClave(clave, salHex) {
@@ -114,8 +116,9 @@ L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom:19, a
 
 async function iniciar() {
   if (ZONAS.length) return;
-  const [z, c] = await Promise.all([fetch("datos/geocercas.json").then(r => r.json()), fetch("datos/cruces.json").then(r => r.json())]);
-  ZONAS = z; CRUCES = c;
+  const [z, c, l] = await Promise.all(["geocercas", "cruces", "lugares"].map(n => fetch("datos/" + n + ".json").then(r => r.json())));
+  ZONAS = z; CRUCES = c; CIU = l.ciudades;
+  l.lugares.forEach(x => { if (!LUG.has(x[0])) LUG.set(x[0], []); LUG.get(x[0]).push(x); });
   const capas = [];
   ZONAS.forEach(g => g.anillos.forEach(a => {
     const p = L.polygon(a.map(q => [q[1], q[0]]), {color:"#9C0019", weight:1.5, fillColor:"#EA0029", fillOpacity:.08});
@@ -159,22 +162,71 @@ function parte(t) { // "13 a bis norte" -> ["13ABISN", "13ABIS", ...] y número 
   return {num: +m[1], v: [...v], suf: suf && m[2].length ? suf[0] : ""};
 }
 function leer(dir) {
-  let t = norm(dir).replace(/\b(n[o°º]\.?|num(ero)?\.?)\s*(?=\d)/g, "# ").replace(/#/g, " # ").replace(/\s+/g, " ").trim();
+  let t = norm(dir).replace(/\b(n[o°º]\.?|num(ero)?\.?)\s*(?=\d)/g, "# ").replace(/#/g, " # ").replace(/^([a-z]+\.?)(\d)/, "$1 $2").replace(/\s+/g, " ").trim();
   for (const [re, tipos] of TIPO) {
     const m = t.match(re); if (!m) continue;
     const r = t.slice(m[0].length).trim();
-    let a = r.match(/^(.+?)\s*#\s*(.+?)\s*-\s*(\d+)/) || r.match(/^(\d+\s?[a-z]{0,2}(?:\s?bis)?(?:\s?(?:norte|oeste|sur))?)\s+(\d+\s?[a-z]{0,2}(?:\s?bis)?(?:\s?(?:norte|oeste|sur))?)\s*-\s*(\d+)/);
+    let a = r.match(/^(.+?)\s*#\s*(.+?)\s*-\s*(\d+)/) || r.match(/^(.+?)\s*#\s*(\d+\s?[a-z]{0,2}(?:\s?bis)?(?:\s?(?:norte|oeste|sur))?)\s+(\d+)\b/) || r.match(/^(\d+\s?[a-z]{0,2}(?:\s?bis)?(?:\s?(?:norte|oeste|sur))?)\s+(\d+\s?[a-z]{0,2}(?:\s?bis)?(?:\s?(?:norte|oeste|sur))?)\s*-\s*(\d+)/) ||
+      r.match(/^(.+?)\s*#\s*(\d{1,3})(\d{2})\b/);   // numero pegado: "# 6620" -> cruce 66, placa 20
     if (!a) return null;
     const p = parte(a[1]), c = parte(a[2]); if (!p || !c) return null;
     return {tipos, p, c, placa: +a[3]};
   }
   return null;
 }
-function refPueblo(dir, ciudad) { const t = norm(dir + " " + (ciudad || "")); for (const k in REF) if (k !== "cali" && t.includes(k)) return REF[k]; return REF.cali; }
+const limpio = t => norm(t).replace(/[^a-z0-9]+/g, " ").trim();      // sin comas ni puntos: "Rozo, frente" -> "rozo frente"
+const palabra = (t, k) => (" " + t + " ").includes(" " + k + " ");
+// ciudades: [clave, nombre, lat, lng, radio_m, geocerca_unica]. Primero la columna Ciudad; si no, una ciudad o pueblo escrito en la direccion.
+function ciudadDe(dir, ciudad) {
+  const c = limpio(ciudad), t = limpio(dir);
+  let x = c && (CIU.find(k => k[0] === c) || CIU.find(k => palabra(c, k[0])));
+  if (!x) x = CIU.find(k => k[4] >= 5000 && k[0] !== "cali" && palabra(t, k[0]));
+  const cali = CIU.find(k => k[0] === "cali");
+  return x ? {clave: x[0], nombre: x[1], ref: [x[2], x[3]], radio: x[4], unica: x[5], dada: true}
+           : {clave: "cali", nombre: "Cali", ref: cali ? [cali[2], cali[3]] : REF.cali, radio: 12000, unica: null, dada: false};
+}
+const VACIAS = new Set(["centro", "norte", "sur", "oriente", "occidente", "valle", "cali", "calle", "carrera", "avenida", "casa", "apto", "local",
+  "edificio", "torre", "bloque", "manzana", "lote", "piso", "oficina", "barrio", "sector", "villa", "santa", "nueva", "nuevo", "alto", "bajo",
+  "colombia", "principal", "parque", "via", "kilometro", "entrada", "porteria", "frente", "esquina", "diagonal", "transversal", "conjunto"]);
+// lugares: [clave, nombre, lat, lng, tipo, ciudad, geocerca, parte]. El nombre mas largo escrito en la direccion o en la columna barrio.
+function lugarDe(texto, ciu) {
+  const tk = limpio(texto).split(" ").filter(Boolean);
+  for (let n = Math.min(6, tk.length); n >= 1; n--) {
+    let cand = [];
+    for (let i = 0; i + n <= tk.length; i++) {
+      const k = tk.slice(i, i + n).join(" ");
+      if (n === 1 && (VACIAS.has(k) || /^\d/.test(k))) continue;
+      if (CIU.some(c => c[0] === k && c[4] >= 5000)) continue;   // el nombre de la ciudad no es un barrio
+      cand = cand.concat(LUG.get(k) || []);
+    }
+    if (!cand.length) continue;
+    const cerca = cand.filter(x => metros([x[2], x[3]], ciu.ref) < ciu.radio * 1.2);
+    if (ciu.dada && !cerca.length) continue;
+    const c = (cerca.length ? cerca : cand).sort((a, b) => (b[4] === "barrio Cali") - (a[4] === "barrio Cali") || metros([a[2], a[3]], ciu.ref) - metros([b[2], b[3]], ciu.ref));
+    const otro = c.some(x => x[6] !== c[0][6] && metros([x[2], x[3]], [c[0][2], c[0][3]]) > 1500);   // un homonimo lejos, en otra geocerca
+    return {lat: c[0][2], lng: c[0][3], nombre: c[0][1], tipo: c[0][4], parte: c[0][7], dudoso: otro};
+  }
+  return null;
+}
+// direcciones oficiales de Cali: la placa exacta o la mas cercana del mismo cruce
+async function placaOficial(d) {
+  for (const tp of d.tipos) for (const pv of d.p.v) {
+    const P = tp + pv;
+    if (!(P in PLACAS)) { try { const r = await fetch("datos/placas/" + P + ".json"); PLACAS[P] = r.ok ? await r.json() : null; } catch (e) { PLACAS[P] = null; } }
+    const via = PLACAS[P]; if (!via) continue;
+    const cv = d.c.v.slice(); if (d.p.suf && !d.c.suf) cv.unshift(d.c.v[0] + d.p.suf);
+    for (const c of cv) {
+      const l = via[c]; if (!l) continue;
+      const m = l.reduce((a, b) => Math.abs(b[0] - d.placa) < Math.abs(a[0] - d.placa) ? b : a);
+      const dif = Math.abs(m[0] - d.placa); if (dif > 40) continue;
+      return {lat: m[1], lng: m[2], prec: dif === 0 ? "exacta (catastro Cali)" : "placa cercana (catastro Cali)", via: P + " # " + c + "-" + m[0], conf: "alta"};
+    }
+  }
+  return null;
+}
 const numDe = k => { const m = k.match(/^[A-Z]{2}(\d+)/); return m ? +m[1] : null; };
 
-function ubicarCruce(d, ref) {
-  const radio = ref === REF.cali ? 12000 : 6000;   // el cruce tiene que estar en el pueblo de la direccion
+function ubicarCruce(d, ref, radio) {   // el cruce tiene que estar en la ciudad de la direccion
   for (const tp of d.tipos) for (const pv of d.p.v) {
     const P = tp + pv, lista = (CRUCES[P] || []).filter(x => metros([x[1], x[2]], ref) < radio); if (!lista.length) continue;
     for (const tc of CRUZA[tp]) {
@@ -208,8 +260,8 @@ let ultimoOSM = 0;
 async function osm(dir, ciudad) {
   const espera = 1100 - (Date.now() - ultimoOSM); if (espera > 0) await new Promise(r => setTimeout(r, espera));
   ultimoOSM = Date.now();
-  const q = dir + ", " + (ciudad || (/(yumbo|jamund|palmira|candelaria|florida|pradera)/i.test(dir) ? "" : "Cali")) + ", Valle del Cauca, Colombia";
-  const u = "https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=co&viewbox=-76.62,3.62,-76.22,3.20&q=" + encodeURIComponent(q);
+  const q = dir + ", " + ciudad + ", Colombia";
+  const u = "https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=co&viewbox=-77.12,4.25,-76.12,2.95&bounded=1&q=" + encodeURIComponent(q);
   const d = leer(dir);   // si es nomenclatura, la respuesta tiene que ser esa via (Nominatim a veces devuelve otra calle)
   const r = (await (await fetch(u)).json()).filter(x => !["city", "town", "municipality", "county", "state", "region", "country", "village"].includes(x.addresstype)
     && (!d || new RegExp("\\b" + d.p.num + "\\b").test(x.display_name.split(",")[0])));
@@ -218,18 +270,42 @@ async function osm(dir, ciudad) {
 }
 // "Mz 4 casa 12 Ciudad Cordoba" -> "Ciudad Cordoba": al menos el barrio
 const soloBarrio = dir => norm(dir).replace(/\b(mz|manzana|casa|cs|apto|apartamento|lote|lt|torre|bloque|int|interior|etapa|piso|barrio|b\/)\b\.?/g, " ").replace(/[#\d-]+[a-z]?\b/g, " ").replace(/\s+/g, " ").trim();
-async function consultar(guia, dir, ciudad) {
-  const d = leer(dir), ref = refPueblo(dir, ciudad);
-  let u = d ? ubicarCruce(d, ref) : null;
+async function consultar(guia, dir, ciudad, barrio) {
+  const d = leer(dir), ciu = ciudadDe(dir + " " + (barrio || ""), ciudad);
+  const base = {guia, dir, ciudad};
+  const fin = u => { const g = geocerca(u.lat, u.lng);
+    return Object.assign({}, base, {geocerca: g.texto, fuera: g.fuera, prec: u.prec, via: u.via, conf: g.fuera ? "revisar" : u.conf, lat: +u.lat.toFixed(6), lng: +u.lng.toFixed(6)}); };
+  // 1. la direccion (catastro de Cali > cruce de calles > interpolada)
+  let u = null;
+  if (d && ciu.clave === "cali") u = await placaOficial(d);
+  if (!u && d) { u = ubicarCruce(d, ciu.ref, ciu.radio); if (u) u.conf = u.prec === "cuadra" ? "alta" : "media"; }
   if (!u && d) {   // la via principal no tiene cruces en OSM: ubicar sobre la via que la cruza
     const tcs = [...new Set(d.tipos.flatMap(t => CRUZA[t]))];
-    for (const tc of tcs) { u = ubicarCruce({tipos: [tc], p: d.c, c: {num: d.p.num, v: d.p.v, suf: d.p.suf}, placa: 0}, ref); if (u) { u.prec = "interpolada"; break; } }
+    for (const tc of tcs) { u = ubicarCruce({tipos: [tc], p: d.c, c: {num: d.p.num, v: d.p.v, suf: d.p.suf}, placa: 0}, ciu.ref, ciu.radio); if (u) { u.prec = "interpolada"; u.conf = "media"; break; } }
   }
-  if (!u) { try { u = await osm(dir, ciudad); } catch (e) { u = null; } }
-  if (!u && !d && soloBarrio(dir).length > 3 && soloBarrio(dir) !== norm(dir)) { try { u = await osm(soloBarrio(dir), ciudad); } catch (e) { u = null; } }
-  if (!u) return {guia, dir, ciudad, geocerca: "NO UBICADA · revise la dirección", prec: "—", lat: "", lng: ""};
-  const g = geocerca(u.lat, u.lng);
-  return {guia, dir, ciudad, geocerca: g.texto, fuera: g.fuera, prec: u.prec, via: u.via, lat: +u.lat.toFixed(6), lng: +u.lng.toFixed(6)};
+  // 2. el barrio o un lugar unico (ingenio, conjunto, vereda...), escrito en la direccion o en la columna barrio
+  const lg = lugarDe((barrio || "") + " " + dir, ciu);
+  const deLugar = () => ({lat: lg.lat, lng: lg.lng, conf: lg.dudoso || lg.parte < .8 ? "media" : "alta",
+    prec: (lg.tipo === "barrio Cali" || /neighbourhood|suburb|quarter|residential/.test(lg.tipo) ? "barrio " : "lugar ") + "«" + lg.nombre + "»" +
+      (lg.parte < .8 ? " (" + Math.round(lg.parte * 100) + " % en esta geocerca)" : "") + (lg.dudoso ? " · hay otro igual en otra zona" : ""), via: lg.tipo});
+  if (u && lg) {
+    const gu = geocerca(u.lat, u.lng).texto, gl = geocerca(lg.lat, lg.lng).texto;
+    if (gu === gl) { u.prec += " · barrio coincide"; u.conf = "alta"; return fin(u); }
+    if (metros([u.lat, u.lng], [lg.lat, lg.lng]) < 900) { u.prec += " · barrio vecino «" + lg.nombre + "»"; return fin(u); }
+    // la direccion y el barrio no coinciden: manda el barrio (un numero mal escrito es mas comun que un barrio equivocado)
+    const b = deLugar(); b.prec += " · la dirección cae en " + gu + ": revisar"; b.conf = "revisar"; return fin(b);
+  }
+  if (u) return fin(u);
+  if (lg) return fin(deLugar());
+  // 3. la ciudad sola, si toda la ciudad es una sola geocerca
+  if (ciu.dada && ciu.unica) return Object.assign({}, base, {geocerca: ciu.unica, fuera: false, prec: "ciudad «" + ciu.nombre + "» (tiene una sola geocerca)", conf: "media",
+    via: "", lat: ciu.ref[0], lng: ciu.ref[1]});
+  // 4. OpenStreetMap (Nominatim)
+  try { u = await osm(dir, ciu.nombre); } catch (e) { u = null; }
+  if (!u && !d && soloBarrio(dir).length > 3 && soloBarrio(dir) !== norm(dir)) { try { u = await osm(soloBarrio(dir), ciu.nombre); } catch (e) { u = null; } }
+  if (u) { u.conf = "revisar"; return fin(u); }
+  const por = ciu.dada ? ciu.nombre + " tiene varias geocercas: falta dirección o barrio" : "revise la dirección o agregue ciudad/barrio";
+  return Object.assign({}, base, {geocerca: "NO UBICADA · " + por, prec: "—", conf: "—", lat: "", lng: ""});
 }
 
 // ---------- mostrar en el mapa (el pin se puede arrastrar para corregir)
@@ -239,20 +315,20 @@ function mostrar(r, alMover) {
   marcador = L.marker([r.lat, r.lng], {draggable: true}).addTo(mapa).bindPopup("<b>" + esc(r.guia || "") + "</b><br>" + esc(r.geocerca)).openPopup();
   mapa.setView([r.lat, r.lng], 16);
   marcador.on("dragend", () => { const p = marcador.getLatLng(); const g = geocerca(p.lat, p.lng);
-    Object.assign(r, {lat: +p.lat.toFixed(6), lng: +p.lng.toFixed(6), geocerca: g.texto, fuera: g.fuera, prec: "corregida en el mapa"});
+    Object.assign(r, {lat: +p.lat.toFixed(6), lng: +p.lng.toFixed(6), geocerca: g.texto, fuera: g.fuera, prec: "corregida en el mapa", conf: "alta"});
     marcador.setPopupContent("<b>" + esc(r.guia || "") + "</b><br>" + esc(r.geocerca)).openPopup(); alMover && alMover(r); });
 }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 function pintarRes(r) {
   const el = document.getElementById("res"); el.style.display = "block";
-  const cls = r.prec === "cuadra" || r.prec === "corregida en el mapa" ? "cuadra" : "aprox";
+  const cls = r.conf === "alta" || r.prec === "corregida en el mapa" ? "cuadra" : "aprox";
   el.innerHTML = '<div class="nota">Guía ' + esc(r.guia || "—") + "</div><div class='gc'>" + esc(r.geocerca) + "</div>" +
-    "<div class='prec " + cls + "'>Ubicación: " + esc(r.prec) + (r.via ? " · " + esc(r.via) : "") + "</div>" +
+    "<div class='prec " + cls + "'>Confianza " + esc(r.conf || "—") + " · " + esc(r.prec) + (r.via ? " · " + esc(r.via) : "") + "</div>" +
     (r.lat !== "" ? "<div class='nota'>Si el pin no quedó en la casa, arrástrelo en el mapa: la geocerca se recalcula.</div>" : "");
 }
 document.getElementById("funa").addEventListener("submit", async ev => {
   ev.preventDefault();
-  const r = await consultar(document.getElementById("guia").value.trim(), document.getElementById("dir").value.trim(), "");
+  const r = await consultar(document.getElementById("guia").value.trim(), document.getElementById("dir").value.trim(), document.getElementById("ciu").value.trim());
   pintarRes(r); mostrar(r, pintarRes);
 });
 
@@ -263,30 +339,30 @@ document.getElementById("arch").addEventListener("change", async ev => {
   const wb = XLSX.read(await f.arrayBuffer()), hoja = wb.Sheets[wb.SheetNames[0]];
   const m = XLSX.utils.sheet_to_json(hoja, {header: 1, defval: ""}).filter(r => r.some(v => String(v).trim()));
   if (!m.length) return;
-  let ig = columna(m[0], "guia"), id = columna(m[0], "direc"), ic = columna(m[0], "ciudad", "municip");
+  let ig = columna(m[0], "guia"), id = columna(m[0], "direc"), ic = columna(m[0], "ciudad", "municip"), ib = columna(m[0], "barrio");
   const conEnc = ig >= 0 || id >= 0; if (ig < 0) ig = 0; if (id < 0) id = 1;
   const datos = conEnc ? m.slice(1) : m; filas = [];
   const est = document.getElementById("estado"), prog = document.getElementById("prog"); document.getElementById("bajar").disabled = true;
   for (let i = 0; i < datos.length; i++) {
-    const r = await consultar(String(datos[i][ig]).trim(), String(datos[i][id]).trim(), ic >= 0 ? String(datos[i][ic]).trim() : "");
+    const r = await consultar(String(datos[i][ig]).trim(), String(datos[i][id]).trim(), ic >= 0 ? String(datos[i][ic]).trim() : "", ib >= 0 ? String(datos[i][ib]).trim() : "");
     filas.push(r); prog.style.width = Math.round(100 * (i + 1) / datos.length) + "%";
     est.textContent = "Procesadas " + (i + 1) + " de " + datos.length; if (i % 10 === 9 || i === datos.length - 1) tabla();
   }
-  const nu = filas.filter(r => r.lat === "").length, ap = filas.filter(r => r.prec.startsWith("aprox")).length;
-  est.textContent = filas.length + " guías · " + (filas.length - nu - ap) + " por cuadra · " + ap + " aproximadas (revisar) · " + nu + " sin ubicar";
+  const n = c => filas.filter(r => r.conf === c).length, nu = filas.filter(r => r.lat === "").length;
+  est.textContent = filas.length + " guías · " + n("alta") + " confianza alta · " + n("media") + " media · " + n("revisar") + " revisar · " + nu + " sin ubicar";
   document.getElementById("bajar").disabled = false;
 });
 function tabla() {
-  document.getElementById("tabla").innerHTML = "<table><tr><th>Guía</th><th>Dirección</th><th>Geocerca</th><th>Ubicación</th></tr>" +
-    filas.map((r, i) => "<tr class='fila' data-i='" + i + "'><td>" + esc(r.guia) + "</td><td>" + esc(r.dir) + "</td><td><b>" + esc(r.geocerca) + "</b></td><td>" + esc(r.prec) + "</td></tr>").join("") + "</table>";
+  document.getElementById("tabla").innerHTML = "<table><tr><th>Guía</th><th>Dirección</th><th>Geocerca</th><th>Confianza</th></tr>" +
+    filas.map((r, i) => "<tr class='fila' data-i='" + i + "'><td>" + esc(r.guia) + "</td><td>" + esc(r.dir) + "</td><td><b>" + esc(r.geocerca) + "</b></td><td title='" + esc(r.prec) + "'>" + esc(r.conf) + "</td></tr>").join("") + "</table>";
   document.querySelectorAll("tr.fila").forEach(tr => tr.onclick = () => {
     document.querySelectorAll("tr.sel").forEach(x => x.classList.remove("sel")); tr.classList.add("sel");
     mostrar(filas[+tr.dataset.i], () => tabla()); });
 }
 document.getElementById("bajar").onclick = () => {
-  const out = [["Guía", "Dirección", "Ciudad", "Geocerca", "Ubicación", "Latitud", "Longitud", "Ver en mapa"]].concat(
-    filas.map(r => [r.guia, r.dir, r.ciudad, r.geocerca, r.prec, r.lat, r.lng, r.lat !== "" ? "https://www.google.com/maps?q=" + r.lat + "," + r.lng : ""]));
-  const ws = XLSX.utils.aoa_to_sheet(out); ws["!cols"] = [{wch:14},{wch:36},{wch:12},{wch:34},{wch:22},{wch:10},{wch:11},{wch:40}];
+  const out = [["Guía", "Dirección", "Ciudad", "Geocerca", "Confianza", "Cómo se ubicó", "Latitud", "Longitud", "Ver en mapa"]].concat(
+    filas.map(r => [r.guia, r.dir, r.ciudad, r.geocerca, r.conf, r.prec, r.lat, r.lng, r.lat !== "" ? "https://www.google.com/maps?q=" + r.lat + "," + r.lng : ""]));
+  const ws = XLSX.utils.aoa_to_sheet(out); ws["!cols"] = [{wch:14},{wch:36},{wch:12},{wch:34},{wch:10},{wch:40},{wch:10},{wch:11},{wch:40}];
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, "Geocercas");
   XLSX.writeFile(wb, "guias_geocerca_" + new Date().toISOString().slice(0, 10) + ".xlsx");
 };

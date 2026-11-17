@@ -1,8 +1,8 @@
-name: Actualizar geocercas y calles
+name: Actualizar geocercas, calles, barrios y placas
 on:
   schedule:
     - cron: "0 10 * * *"   # 05:00 Colombia, todos los dias: geocercas
-    - cron: "30 10 * * 1"  # lunes 05:30: tambien las calles
+    - cron: "30 10 * * 1"  # lunes 05:30: tambien calles y placas oficiales de Cali
   workflow_dispatch:
 permissions:
   contents: write
@@ -19,9 +19,15 @@ jobs:
       - name: Cruces de calles desde OpenStreetMap (lunes)
         if: github.event_name == 'workflow_dispatch' || github.event.schedule == '30 10 * * 1'
         run: python scripts/calles_indice.py || echo "Overpass no respondio; se conserva el indice anterior"
+      - name: Barrios y lugares (depende de las geocercas, todos los dias)
+        run: python scripts/lugares_indice.py || echo "Overpass o IDESC no respondio; se conserva el indice anterior"
+      - name: Placas oficiales de Cali, IDESC (lunes)
+        if: github.event_name == 'workflow_dispatch' || github.event.schedule == '30 10 * * 1'
+        timeout-minutes: 40
+        run: python scripts/catastro_cali.py || echo "IDESC no respondio; se conservan las placas anteriores"
       - name: Guardar si cambio
         run: |
           git config user.name "geocerca-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add datos/geocercas.json datos/cruces.json
+          git add datos/geocercas.json datos/cruces.json datos/lugares.json datos/placas
           git diff --cached --quiet || (git commit -m "datos: actualizacion automatica" && git push)

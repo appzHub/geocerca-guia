@@ -6,7 +6,8 @@ con nombre (Overpass) y guarda, por cada via, sus cruces: datos/cruces.json = {v
 import json, re, sys, unicodedata, urllib.parse, urllib.request
 from collections import defaultdict
 
-BBOX = (3.20, -76.62, 3.62, -76.22)   # Cali, Yumbo, Jamundi, Palmira, Candelaria
+# toda el area de las geocercas (17/11/2026): Santander de Quilichao, Cali, Palmira, Buga, Tulua, Buenaventura
+TILES = [(2.95, -76.70, 3.62, -76.12), (3.62, -76.70, 4.25, -76.12), (3.70, -77.12, 3.95, -76.70)]
 TIPOS = [(r"avenida calle|av\.? calle", "CL"), (r"avenida carrera|av\.? carrera", "KR"), (r"calle", "CL"), (r"carrera", "KR"),
          (r"diagonal", "DG"), (r"transversal", "TV"), (r"avenida", "AV")]
 SUF = {"NORTE": "N", "OESTE": "O", "SUR": "S", "ESTE": "E"}
@@ -31,10 +32,13 @@ def clave(nombre):
 
 
 def bajar():
-    q = f'[out:json][timeout:250];way["highway"]["name"]({",".join(map(str, BBOX))});out tags geom;'
-    req = urllib.request.Request("https://overpass-api.de/api/interpreter", data=urllib.parse.urlencode({"data": q}).encode(),
-                                 headers={"User-Agent": "geocerca-guia"})
-    return json.load(urllib.request.urlopen(req, timeout=290))["elements"]
+    els = []
+    for t in TILES:
+        q = f'[out:json][timeout:280];way["highway"]["name"]({",".join(map(str, t))});out tags geom;'
+        req = urllib.request.Request("https://overpass-api.de/api/interpreter", data=urllib.parse.urlencode({"data": q}).encode(),
+                                     headers={"User-Agent": "geocerca-guia"})
+        els += json.load(urllib.request.urlopen(req, timeout=320))["elements"]
+    return els
 
 
 def main():
